@@ -130,14 +130,14 @@ class BackportService:
             if not target_branch_info:
                 raise ValueError(f"Target branch '{target_branch}' not found")
             
-            # Get source MR
+            # Get source MR - either from provided IID or find by source branch
             source_mr = None
             if mr_iid:
                 source_mr = self.gitlab.get_merge_request(project, mr_iid)
             else:
-                # Find merged MR from source branch
+                # Find MR from source branch (could be merged or not, we just need the commits)
                 mrs = project.mergerequests.list(
-                    state='merged',
+                    state='all',  # Get all MRs, not just merged
                     source_branch=source_branch,
                     per_page=1
                 )
@@ -145,7 +145,7 @@ class BackportService:
                     source_mr = mrs[0]
             
             if not source_mr:
-                raise ValueError(f"No merged MR found for source branch '{source_branch}'")
+                raise ValueError(f"No MR found for source branch '{source_branch}'")
             
             logger.info(f"✅ Found MR: !{source_mr.iid} - {source_mr.title}")
             

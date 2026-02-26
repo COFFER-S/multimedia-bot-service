@@ -2,8 +2,8 @@
 Webhook service for processing GitLab webhook events.
 """
 
-from typing import Dict, Any, Optional, List
 import re
+from typing import Dict, Any, Optional, List
 
 from app.services.backport_service import BackportService, BackportResult
 from app.utils.logger import get_logger
@@ -21,9 +21,142 @@ class WebhookService:
         r"backport[\-](.+)",
     ]
     
+    # Comment patterns that trigger backport
+    BACKPORT_COMMENT_PATTERNS = [
+        r"@bot\s+backport\s+to\s+(\S+)",
+        r"@backport-bot\s+(\S+)",
+        r"/backport\s+(\S+)",
+    ]
+    
     def __init__(self):
         """Initialize webhook service."""
         self.backport_service = BackportService()
+    
+    async def handle_note_event(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle GitLab note (comment) webhook event.
+        
+        This is triggered when someone comments on an MR.
+        Supports commands like: @bot backport to develop
+        
+        Args:
+            payload: GitLab webhook payload for note events
+            
+        Returns:
+            Processing result
+        """
+        object_attributes = payload.get("object_attributes", {})
+        merge_request = payload.get("merge_request", {})
+        project = payload.get("project", {})
+        
+        # Check if this is an MR comment
+        noteable_type = object_attributes.get("noteable_type", "").lower()
+        if noteable_type != "mergerequest":
+            logger.debug("Note is not on an MR, ignoring")
+            return {
+                "action": "ignored",
+                "reason": "Note is not on a merge request",
+                "noteable_type": noteable_type
+            }
+        
+        # Get comment text
+        note_text = object_attributes.get("note", "")
+        logger.info(f"Processing MR comment: {note_text[:50]}...")
+        
+        # Check for backport command
+        target_branch = self._extract_target_branch_from_comment(note_text)
+        
+        if not target_branch:
+            logger.debug("No backport command found in comment")
+            return {
+                "action": "ignored",
+                "reason": "No backport command found in comment",
+                "comment_preview": note_text[:100]
+            }
+        
+        logger.info(f"Backport command detected: target={target_branch}")
+        
+        # Extract MR information from payload
+        source_branch = merge_request.get("source_branch")
+        mr_iid = merge_request.get("iid")
+        project_path = project.get("path_with_namespace")
+        
+        if not source_branch:
+            logger.error("Source branch not found in MR payload")
+            return {
+                "action": "failed",
+                "reason": "Source branch not found in MR payload",
+                "mr_iid": mr_iid
+            }
+        
+        logger.info(
+            f"Executing backport",
+            project=project_path,
+            source=source_branch,
+            target=target_branch,
+            mr_iid=mr_iid
+        )
+        
+        # Execute backport
+        try:
+            result = await self.backport_service.execute_backport(
+                project_path=project_path,
+                source_branch=source_branch,
+                target_branch=target_branch,
+                mr_iid=mr_iid,
+                continue_on_conflict=True
+            )
+            
+            return {
+                "action": "backport_executed",
+                "mr_iid": mr_iid,
+                "source_branch": source_branch,
+                "target_branch": target_branch,
+                "success": result.success,
+                "mr_url": result.mr_url,
+                "mr_iid": result.mr_iid,
+                "commits": {
+                    "total": result.total_commits,
+                    "successful": result.successful_commits,
+                    "conflicts": len(result.conflict_commits),
+                    "failed": len(result.failed_commits)
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Backport execution failed: {e}", exc_info=True)
+            return {
+                "action": "failed",
+                "reason": str(e),
+                "mr_iid": mr_iid,
+                "source_branch": source_branch,
+                "target_branch": target_branch
+            }
+    
+    def _extract_target_branch_from_comment(self, comment: str) -> Optional[str]:
+        """
+        Extract target branch from comment text.
+        
+        Supports patterns like:
+        - @bot backport to develop
+        - @backport-bot release/v1.0
+        - /backport main
+        
+        Args:
+            comment: Comment text
+            
+        Returns:
+            Target branch name or None if not found
+        """
+        for pattern in self.BACKPORT_COMMENT_PATTERNS:
+            match = re.search(pattern, comment, re.IGNORECASE)
+            if match:
+                target = match.group(1).strip()
+                # Remove any trailing punctuation
+                target = target.rstrip(".,;:!?")
+                return sanitize_branch_name(target)
+        
+        return None
     
     async def handle_merge_request_event(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -56,7 +189,7 @@ class WebhookService:
             target=target_branch
         )
         
-        # Only process merged MRs
+        # Only process merged MRs with backport labels
         if mr_state != "merged":
             logger.info(f"MR !{mr_iid} is not merged (state={mr_state}), skipping")
             return {
@@ -138,9 +271,6 @@ class WebhookService:
         
         logger.info(f"Push event received", project=project_path, branch=branch)
         
-        # Push events don't trigger backports automatically
-        # But could be used for validation or cleanup
-        
         return {
             "action": "ignored",
             "reason": "Push events do not trigger backports",
@@ -171,9 +301,6 @@ class WebhookService:
             ref=ref,
             status=status
         )
-        
-        # Pipeline events could trigger backports on success
-        # but currently we rely on MR merge events
         
         return {
             "action": "ignored",
