@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  gitlab-backport-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: gitlab-backport-bot:latest
+    container_name: gitlab-backport-bot
+    restart: unless-stopped
+    
+    # Port mapping
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    
+    # Environment variables
+    environment:
+      # Required: GitLab configuration
+      - GITLAB_URL=${GITLAB_URL:-https://gitlab.espressif.cn:6688}
+      - GITLAB_TOKEN=${GITLAB_TOKEN}
+      
+      # Optional: Webhook security
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      
+      # Server configuration
+      - PORT=${PORT:-8080}
+      - HOST=${HOST:-0.0.0.0}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # Backport defaults
+      - DEFAULT_CONTINUE_ON_CONFLICT=${DEFAULT_CONTINUE_ON_CONFLICT:-false}
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8080}/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Read-only root filesystem for security
+    read_only: true
+    
+    # Temporary filesystems
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    
+    # Volumes for persistent data (if needed)
+    # volumes:
+    #   - ./data:/app/data
+    
+    # Networks
+    networks:
+      - gitlab-backport-bot-network
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+# Optional: Add a reverse proxy (nginx) for production
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: gitlab-backport-bot-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - gitlab-backport-bot
+  #   networks:
+  #     - gitlab-backport-bot-network
+
+networks:
+  gitlab-backport-bot-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+# Volumes (if needed for persistent data)
+# volumes:
+#   gitlab-backport-bot-data:
+#     driver: local
