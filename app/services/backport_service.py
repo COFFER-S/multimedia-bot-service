@@ -89,7 +89,7 @@ class BackportService:
         """
         self.gitlab = gitlab_service or GitLabService()
     
-    async def backport_merge_request(
+    async def execute_backport(
         self,
         project_path: str,
         source_branch: str,
@@ -102,7 +102,7 @@ class BackportService:
         
         Args:
             project_path: GitLab project path with namespace
-            source_branch: Source branch name
+            source_branch: Source branch name (from MR)
             target_branch: Target branch name
             mr_iid: Optional specific MR IID to backport
             continue_on_conflict: Whether to continue on cherry-pick conflicts
