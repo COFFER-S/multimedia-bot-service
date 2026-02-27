@@ -161,14 +161,37 @@ docker logs -f backport-bot
 git clone https://github.com/COFFER-S/multimedia-bot-service.git
 cd multimedia-bot-service
 
-# 2. 编辑 docker-compose.yml (已预配置好)
-# 3. 编辑 .env 文件设置环境变量
+# 2. 创建环境变量文件 .env
+cat > .env << 'EOF'
+# GitLab 配置 (必需)
+GITLAB_TOKEN=your_gitlab_token_here
+GITLAB_URL=https://gitlab.espressif.cn:6688
+
+# Webhook 安全 (可选但推荐)
+WEBHOOK_SECRET=your_webhook_secret_here
+
+# 服务配置
+PORT=8080
+LOG_LEVEL=INFO
+EOF
+
+# 3. 检查 docker-compose.yml 配置
+cat docker-compose.yml
+# 输出应包含：
+# - 端口映射 (默认 8080:8080)
+# - 环境变量文件引用 (.env)
+# - 健康检查配置
+# - 自动重启策略
 
 # 4. 启动服务
 docker-compose up -d
 
-# 5. 查看日志
+# 5. 检查服务状态
+docker-compose ps
 docker-compose logs -f
+
+# 6. 测试健康检查
+curl http://localhost:8080/health
 ```
 
 #### 使用 systemd 部署 (裸机部署)
@@ -487,10 +510,12 @@ git push origin feature/backport-test
 # 4. 在 GitLab 中创建 MR
 # - Source: feature/backport-test
 # - Target: main
-# - Label: backport-to-v1.0
 
-# 5. 合并 MR 后，观察 Webhook 是否触发
-# 6. 检查 GitLab 上是否创建了新的 Backport MR
+# 5. 在 MR 下评论触发 Backport
+# 评论内容: @bot backport to release/v1.0
+
+# 6. 观察 Webhook 是否触发
+# 7. 检查 GitLab 上是否创建了新的 Backport MR
 ```
 
 #### 3.6 常见问题排查
