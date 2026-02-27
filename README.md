@@ -194,6 +194,92 @@ docker-compose logs -f
 curl http://localhost:8080/health
 ```
 
+#### Docker Compose 配置详解
+
+`docker-compose.yml` 主要配置项说明：
+
+```yaml
+version: '3.8'
+
+services:
+  gitlab-backport-bot:
+    build:
+      context: .              # 构建上下文（当前目录）
+      dockerfile: Dockerfile  # Dockerfile 名称
+      target: production     # 构建目标阶段
+    
+    image: gitlab-backport-bot:latest  # 生成的镜像名
+    container_name: gitlab-backport-bot  # 容器名称
+    restart: unless-stopped  # 自动重启策略
+    
+    # 端口映射（主机端口:容器端口）
+    ports:
+      - "8080:8080"
+    
+    # 环境变量（从 .env 文件读取）
+    environment:
+      - GITLAB_URL=${GITLAB_URL:-https://gitlab.espressif.cn:6688}
+      - GITLAB_TOKEN=${GITLAB_TOKEN}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - PORT=${PORT:-8080}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    
+    # 健康检查配置
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s      # 检查间隔
+      timeout: 10s       # 超时时间
+      retries: 3         # 重试次数
+      start_period: 40s  # 启动等待时间
+    
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'      # CPU 限制
+          memory: 512M     # 内存限制
+        reservations:
+          cpus: '0.25'     # 预留 CPU
+          memory: 128M     # 预留内存
+    
+    # 网络配置
+    networks:
+      - gitlab-backport-bot-network
+
+# 网络定义
+networks:
+  gitlab-backport-bot-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+```
+
+**常用操作命令：**
+
+```bash
+# 启动服务（后台运行）
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+
+# 重启服务
+docker-compose restart
+
+# 重新构建镜像
+docker-compose build
+
+# 查看容器状态
+docker-compose ps
+
+# 进入容器内部
+docker-compose exec gitlab-backport-bot bash
+```
+
 #### 使用 systemd 部署 (裸机部署)
 
 ```bash
